@@ -1,0 +1,153 @@
+!pip install pillow cryptography
+
+# Importando as bibliotecas necessárias
+from PIL import Image
+import hashlib
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives import hashes, serialization
+import base64
+import os
+
+# Função para embutir texto em uma imagem usando Steganography manualmente
+def embutir_texto(imagem_origem, imagem_destino, mensagem):
+    imagem = Image.open(imagem_origem).convert("RGB")
+    largura, altura = imagem.size
+    # Inserir a mensagem no final da imagem, byte a byte
+    pixels = imagem.load()
+    mensagem_bin = ''.join([format(ord(i), '08b') for i in mensagem])
+    index = 0
+    for i in range(altura):
+        for j in range(largura):
+            r, g, b = pixels[j, i]
+            if index < len(mensagem_bin):
+                r = (r & 0xFE) | int(mensagem_bin[index])
+                index += 1
+            if index < len(mensagem_bin):
+                g = (g & 0xFE) | int(mensagem_bin[index])
+                index += 1
+            if index < len(mensagem_bin):
+                b = (b & 0xFE) | int(mensagem_bin[index])
+                index += 1
+            pixels[j, i] = (r, g, b)
+    imagem.save(imagem_destino)
+
+# Função para recuperar texto de uma imagem usando Steganography
+def recuperar_texto(imagem_path):
+    imagem = Image.open(imagem_path).convert("RGB")
+    largura, altura = imagem.size
+    pixels = imagem.load()
+    bin_data = ""
+    for i in range(altura):
+        for j in range(largura):
+            r, g, b = pixels[j, i]
+            bin_data += str(r & 1)
+            bin_data += str(g & 1)
+            bin_data += str(b & 1)
+
+    all_bytes = [bin_data[i:i+8] for i in range(0, len(bin_data), 8)]
+    mensagem = ""
+    for byte in all_bytes:
+        mensagem += chr(int(byte, 2))
+        if mensagem[-5:] == "#####":
+            break
+    return mensagem[:-5]
+
+# Função para gerar hash de uma imagem
+def gerar_hash(imagem_path):
+    with open(imagem_path, "rb") as img_file:
+        img_hash = hashlib.sha256(img_file.read()).hexdigest()
+    print(f"Hash da imagem {imagem_path}: {img_hash}")
+    return img_hash
+
+# Função para gerar chaves RSA
+def gerar_chaves():
+    chave_privada = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048
+    )
+    chave_publica = chave_privada.public_key()
+    return chave_privada, chave_publica
+
+# Função para encriptar uma mensagem usando RSA
+def encriptar_mensagem(mensagem, chave_publica):
+    mensagem_bytes = mensagem.encode('utf-8')
+    mensagem_encriptada = chave_publica.encrypt(
+        mensagem_bytes,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    return mensagem_encriptada
+
+# Função para decriptar uma mensagem usando RSA
+def decriptar_mensagem(mensagem_encriptada, chave_privada):
+    mensagem_decriptada = chave_privada.decrypt(
+        mensagem_encriptada,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    return mensagem_decriptada.decode('utf-8')
+
+# Função para salvar mensagem encriptada na imagem
+def embutir_mensagem_encriptada(mensagem_encriptada, imagem_origem, imagem_destino):
+    embutir_texto(imagem_origem, imagem_destino, base64.b64encode(mensagem_encriptada).decode() + "#####")
+
+# Menu principal
+def menu():
+    chave_privada = None
+    chave_publica = None
+    mensagem_encriptada = None
+
+    while True:
+        print("\n==== Menu de Opções ====")
+        print("(1) Embutir texto em uma imagem")
+        print("(2) Recuperar texto de uma imagem")
+        print("(3) Gerar hash das imagens")
+        print("(4) Encriptar mensagem com RSA")
+        print("(5) Decriptar mensagem com RSA")
+        print("(S ou s) Sair")
+
+        opcao = input("Escolha uma opção: ")
+
+        if opcao == "1":
+            imagem_origem = input("Informe o caminho da imagem de origem: ")
+            imagem_destino = input("Informe o caminho da imagem destino: ")
+            mensagem = input("Digite a mensagem a ser embutida: ")
+            embutir_texto(imagem_origem, imagem_destino, mensagem + "#####")
+            print("Texto embutido com sucesso!")
+
+        elif opcao == "2":
+            imagem = input("Informe o caminho da imagem para recuperar o texto: ")
+            print(recuperar_texto(imagem))
+
+        elif opcao == "3":
+            imagem_origem = input("Informe o caminho da imagem original: ")
+            imagem_alterada = input("Informe o caminho da imagem alterada: ")
+            gerar_hash(imagem_origem)
+            gerar_hash(imagem_alterada)
+
+        elif opcao == "4":
+            mensagem = input("Digite a mensagem a ser encriptada: ")
+            chave_privada, chave_publica = gerar_chaves()
+            mensagem_encriptada = encriptar_mensagem(mensagem, chave_publica)
+            print("Mensagem encriptada.")
+
+        elif opcao == "5":
+            imagem = input("Digite a imagem alterada:")
+            mensagem = recuperar_texto(imagem)
+            print("Mensagem decifrada:", decriptar_mensagem(base64.b64decode(mensagem), chave_privada))
+
+        elif opcao.lower() == "s":
+            print("Saindo do programa...")
+            break
+
+        else:
+            print("Opção inválida. Tente novamente.")
+
+menu()
